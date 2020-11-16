@@ -1,50 +1,40 @@
-#' Split conjunctions in spacy tokens 
-#'
-#' The specific problem of splitting conjunctions is rather complicated because it requires recursion (for conjunctions in conjunctions) and needs to somehow deal with argument drop. 
-#' In the sentence: "Bob ate bread and cheese", we cannot simply split the sentence into "Bob ate bread" and "cheese". We need to copy the implicit arguments to get "Bob ate bread" and "Bob ate cheese".
-#' 
-#' Note that this function is mainly provided for demonstration purposes.
-#' The goal of the rsyntax package is to provide the tools to query and reshape dependency trees, and (at least for now) we want to keep applications such as this function separated.
-#' This specific implementation is also not perfect, and for complex sentences other forms of text simplification would ideally be performed first (e.g., isolating relative clauses).
+
+
+#' Split conjunctions for dependency trees in Universal Dependencies 
 #'
 #' @param tokens     a tokenIndex based on texts parsed with \code{\link[spacyr]{spacy_parse}} (with dependency=TRUE)
+#' @param conj_rel   The dependency relation for conjunctions. By default conj 
+#' @param cc_rel     The dependency relation for the coordinating conjunction. By default cc. This will be removed.
+#' @param unpack      If TRUE (default), create separate branches for the parent and the node that inherits the parent position
+#' @param no_fill     Optionally, a character vector with relation types that will be excluded from fill
+#' @param min_dist    Optionally, a minimal distance between the conj node and its parent
+#' @param max_dist    Optionally, a maximum distance between the conj node and its parent
+#' @param right_fill_dist Should fill to the right of the conjunction be used?
+#' @param compound_rel The relation types indicating compounds
+#' @param ...        specify conditions for the conjunction token. For instance, using 'pos = "VERB"' to only split VERB conjunctions.
+#'                   This is especially usefull to use different no_fill conditions.
 #'
-#' @return  the tokenIndex with conjunctions split into separate isolated branches.
+#' @return A tokenindex
 #' @export
 #'
 #' @examples
 #' tokens = tokens_spacy[tokens_spacy$doc_id == 'text5',]
 #' 
-#' \donttest{
+#' if (interactive()) {
 #' tokens %>%
-#'    spacy_split_conjunctions() %>%
+#'    split_UD_conj() %>%
 #'    plot_tree()
-#'  }
-spacy_split_conjunctions <- function(tokens) {
-  if (rsyntax_threads() != data.table::getDTthreads()) {
-    old_threads = data.table::getDTthreads()
-    on.exit(data.table::setDTthreads(old_threads))
-    data.table::setDTthreads(rsyntax_threads())
-  }
-  
-  
-  tokens = as_tokenindex(tokens)
-  tokens = split_tree(tokens, rel='conj', 
-                            no_fill=c('acl:relcl','acl','appos','relcl', 'cop', 
-                                      'advmod','advcl','xcomp','obl','ccomp','aux','det'), 
-                            min_dist = 3)
-  tokens = split_tree(tokens, rel='conj', no_fill=c('acl:relcl','relcl', 'conj', 'cop'))
-  tokens = chop(tokens, relation = 'cc')
-  tokens
-}
-
-split_tree <- function(tokens, rel='conj', no_fill=NULL, min_dist=0, max_dist=Inf, compound = c('compound*','flat')) {
-  tq = tquery(label='target', NOT(relation = rel),
-              children(relation = compound, label='ignore', req=FALSE),
+#' }
+split_UD_conj <- function(tokens, conj_rel='conj', cc_rel='cc', unpack=T, no_fill=NULL, min_dist=0, max_dist=Inf, right_fill_dist=T, compound_rel = c('compound*','flat'), ...) {
+  conj_max_window = if(right_fill_dist) Inf else 0
+  tq = tquery(label='target', NOT(relation = conj_rel),
+              children(relation = compound_rel, label='ignore', req=FALSE),
               fill(NOT(relation = no_fill), max_window = c(Inf,0), connected=TRUE),
-              children(relation = rel, label='origin', min_window=c(min_dist,min_dist), max_window = c(max_dist,max_dist),
-                       fill(NOT(relation = no_fill), max_window=c(0,Inf), connected=TRUE)))
-  tokens = climb_tree(tokens, tq)
+              children(relation = conj_rel, label='origin', ..., min_window=c(min_dist,min_dist), max_window = c(max_dist,max_dist),
+                       fill(NOT(relation = no_fill), max_window=c(0,conj_max_window), connected=TRUE)))
+  tokens = climb_tree(tokens, unpack=unpack, tq)
+  if (!is.null(cc_rel)) tokens = chop(tokens, relation = 'cc')
+  tokens
 }
 
 #' Have a node adopt its parent's position
@@ -86,7 +76,7 @@ split_tree <- function(tokens, rel='conj', no_fill=NULL, min_dist=0, max_dist=In
 #' 
 #' tokens
 #' \donttest{
-#' plot_tree(tokens)
+#' if (interactive()) plot_tree(tokens)
 #' }
 climb_tree <- function(.tokens, tq, unpack=TRUE, isolate=TRUE, take_fill=TRUE, give_fill=TRUE, only_new='relation', max_iter=200) {
   if (rsyntax_threads() != data.table::getDTthreads()) {
@@ -152,7 +142,7 @@ climb_tree <- function(.tokens, tq, unpack=TRUE, isolate=TRUE, take_fill=TRUE, g
     
   }
   #.tokens
-  as_tokenindex(rbindlist(out, fill = TRUE))
+  as_tokenindex(data.table::rbindlist(out, fill = TRUE))
 }
 
 
@@ -237,7 +227,7 @@ one_per_sentence <- function(.tokens) {
 #' tokens = spacy_conjunctions(tokens)
 #' tokens
 #' \donttest{
-#' plot_tree(tokens)
+#' if (interactive()) plot_tree(tokens)
 #' }
 chop <- function(.tokens, ...) {
   if (rsyntax_threads() != data.table::getDTthreads()) {

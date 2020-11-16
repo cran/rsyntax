@@ -26,14 +26,15 @@
 #' tokens2
 #' 
 #' \donttest{
-#' plot_tree(tokens2)
+#' if (interactive()) plot_tree(tokens2)
 #' 
 #' ## this is designed to work nicely with magrittr piping
-#' library(magrittr)
+#' if (interactive()) {
 #' tokens %>%
 #'   select_nodes(tq) %>%
 #'   mutate_nodes("relative_clause", parent=NA) %>%
 #'   plot_tree()
+#' }
 #' }
 select_nodes <- function(tokens, tquery, fill=TRUE, fill_only_first=TRUE, .one_per_sentence=FALSE, .order=1){
   if (rsyntax_threads() != data.table::getDTthreads()) {
@@ -69,6 +70,7 @@ select_nodes <- function(tokens, tquery, fill=TRUE, fill_only_first=TRUE, .one_p
       
       is_fill = ids$.FILL_LEVEL > 0
       fill_table = subset(ids, is_fill)
+      #if (nrow(fill_table) == 0) browser()
       data.table::setindexv(fill_table, '.ROLE')
     }
     l = list(nodes=nodes, fill=fill_table, prov = list(tquery=tquery, fill=fill, fill_only_first=fill_only_first))
@@ -436,7 +438,7 @@ do_remove_fill <- function(.tokens, .nodes, fill_nodes, node, rm_subset_fill, rm
 #' tokens3 = copy_nodes(tokens2, 'object', 'new_object', copy_fill=TRUE)
 #' 
 #' \donttest{
-#' plot_tree(tokens3, token, pos)
+#' if (interactive()) plot_tree(tokens3, token, pos)
 #' }
 copy_nodes <- function(.tokens, node, new, subset=NULL, keep_relation=TRUE, copy_fill=FALSE, subset_fill=NULL, only_new=NULL) {
   if (rsyntax_threads() != data.table::getDTthreads()) {
@@ -626,14 +628,14 @@ is_deparsed_call <- function(x) {
 
 add_to_tokens <- function(.tokens, new_tokens) {
   if (!identical(colnames(.tokens), colnames(new_tokens))) new_tokens = subset(new_tokens, select = colnames(.tokens))
-  .tokens = unique(rbindlist(list(.tokens, new_tokens), use.names = TRUE, fill=TRUE))
+  .tokens = unique(data.table::rbindlist(list(.tokens, new_tokens), use.names = TRUE, fill=TRUE))
   .tokens = as_tokenindex(.tokens)
   .tokens
 }
 
 add_to_fill <- function(.nodes, new_fill) {
   if (!identical(colnames(.nodes$fill), colnames(new_fill))) new_fill = subset(new_fill, select = colnames(.nodes$fill))
-  .nodes$fill = unique(rbindlist(list(.nodes$fill, new_fill), use.names = TRUE, fill=TRUE))
+  .nodes$fill = unique(data.table::rbindlist(list(.nodes$fill, new_fill), use.names = TRUE, fill=TRUE))
   data.table::setindexv(.nodes$fill, '.ROLE')
   .nodes
 }

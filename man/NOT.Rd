@@ -7,7 +7,7 @@
 NOT(...)
 }
 \arguments{
-\item{...}{name-value pairs for lookup terms. see ?query.}
+\item{...}{name-value pairs for look-up terms. see ?query.}
 }
 \value{
 A list, to be used as input to \link{tquery}
@@ -16,5 +16,5 @@ A list, to be used as input to \link{tquery}
 Use NOT search in tquery
 }
 \examples{
-tquery(NOT(POS='Noun'))   
+tquery(NOT(POS='Noun'))  
 }

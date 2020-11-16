@@ -2,8 +2,8 @@ Package: rsyntax
 Type: Package
 Title: Extract Semantic Relations from Text by Querying and Reshaping
         Syntax
-Version: 0.1.0
-Date: 2020-05-13
+Version: 0.1.1
+Date: 2020-10-22
 Author: Kasper Welbers and Wouter van Atteveldt
 Maintainer: Kasper Welbers <kasperwelbers@gmail.com>
 Depends: R (>= 3.2.0)
@@ -17,9 +17,9 @@ Description: Various functions for querying and reshaping dependency trees,
     such as quotes (who said what) and clauses (who did what). Method proposed in 
     Van Atteveldt et al. (2017) <doi:10.1017/pan.2016.12>.
 License: GPL-3
-RoxygenNote: 7.1.0
+RoxygenNote: 7.1.1
 Suggests: testthat
 NeedsCompilation: no
-Packaged: 2020-05-26 08:16:57 UTC; kasper
+Packaged: 2020-11-16 08:52:44 UTC; kasper
 Repository: CRAN
-Date/Publication: 2020-06-02 09:20:05 UTC
+Date/Publication: 2020-11-16 15:20:03 UTC

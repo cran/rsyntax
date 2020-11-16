@@ -20,7 +20,7 @@
 #' tokens2 = isolate_branch(tokens, relation = 'relcl', copy_parent = TRUE)
 #' tokens2
 #' \donttest{
-#' plot_tree(tokens2)
+#' if (interactive()) plot_tree(tokens2)
 #' }
 isolate_branch <- function(tokens, ..., copy_parent=TRUE, copy_parent_fill=TRUE) {
   if (rsyntax_threads() != data.table::getDTthreads()) {
@@ -33,30 +33,31 @@ isolate_branch <- function(tokens, ..., copy_parent=TRUE, copy_parent_fill=TRUE)
   
   tokens = data.table::copy(tokens)
   if (!copy_parent) {
-    ## this is simply, because there can be no issues with nesting, so we can split everything in one go
+    ## in this case there can be no issues with nesting, so we can split everything in one go
     tq = tquery(label='parent',
                 children(..., label='branch'))
     tokens = select_nodes(tokens, tq)
     tokens = mutate_nodes(tokens, 'branch', parent = NA, relation = 'ROOT', branch_parent=parent$token_id)
-    return(tokens)  
+  } else {
+    ## if we do copy the parent, we need to do it recursively from root to bottom 
+    tokens[, .ISOLATED := FALSE]
+    tq = tquery(label='parent', .ISOLATED=FALSE, fill=copy_parent_fill,
+                        children(..., label='branch'))
+    
+    
+    tokens = rec_isolate(tokens, tq)
+    tokens[, .ISOLATED := NULL]
   }
-  
-  ## if we do copy the parent, we need to do it recursively from root to bottom 
-  tokens[, .ISOLATED := FALSE]
-  tq = tquery(label='parent', .ISOLATED=FALSE,
-                      children(..., label='branch'))
-  
-  
-  tokens = rec_isolate(tokens, tq)
-  tokens[, .ISOLATED := NULL]
+  tokens
 }
 
 rec_isolate <- function(tokens, tq) {
   parent_copy = parent = NULL
   
+  
   tokens = select_nodes(tokens, tq, fill_only_first=TRUE, .one_per_sentence = TRUE)
   if (nrow(selected_nodes(tokens)$nodes) == 0) return(tokens)
-  tokens = copy_nodes(tokens, 'parent', 'parent_copy', copy_fill=TRUE)
+  tokens = copy_nodes(tokens, 'parent', 'parent_copy', only_new = F, copy_fill=TRUE)
   tokens = mutate_nodes(tokens, 'branch', parent = parent_copy$token_id)
   tokens = mutate_nodes(tokens, 'parent_copy', parent = NA, relation = 'ROOT', branch_parent=parent$parent, .ISOLATED=TRUE)
   rec_isolate(tokens, tq)
