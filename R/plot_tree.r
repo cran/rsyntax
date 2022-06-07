@@ -22,6 +22,7 @@
 #' @param use_color   If true, use colors
 #' @param max_curve   A number for controlling the allowed amount of curve in the edges. 
 #' @param palette     A function for creating a vector of n contiguous colors. See ?terrain.colors for standard functions and documentation
+#' @param rel_on_edge If TRUE, print relation label on edge instead of above the node
 #' @param pdf_viewer  If TRUE, view the plot as a pdf. If no pdf_file is specified, the pdf will be saved to the temp folder
 #' @param viewer_mode By default, the plot is saved as a PNG embedded in a HTML and opened in the viewer. This hack makes it independent of the 
 #'                    size of the plotting device and enables scrolling. By setting viewer_mode to False, the current plotting device is used.
@@ -49,14 +50,17 @@
 #'    plot_tree(token, pos, annotation='clause')
 #' }
 #' }
-plot_tree <-function(tokens, ..., sentence_i=1, doc_id=NULL, sentence=NULL, annotation=NULL, only_annotation=FALSE, pdf_file=NULL, allign_text=TRUE, ignore_rel=NULL, all_lower=FALSE, all_abbrev=NULL, textsize=1, spacing=1, use_color=TRUE, max_curve=0.3, palette=grDevices::terrain.colors, pdf_viewer=FALSE, viewer_mode=TRUE, viewer_size=c(100,100)) {  
+plot_tree <-function(tokens, ..., sentence_i=1, doc_id=NULL, sentence=NULL, annotation=NULL, only_annotation=FALSE, pdf_file=NULL, allign_text=TRUE, ignore_rel=NULL, all_lower=FALSE, all_abbrev=NULL, textsize=1, spacing=1, use_color=TRUE, max_curve=0.3, palette=grDevices::terrain.colors, rel_on_edge=F, pdf_viewer=FALSE, viewer_mode=TRUE, viewer_size=c(100,100)) {  
   if (methods::is(tokens, 'tCorpus')) tokens = tokens$tokens
   if (pdf_viewer && is.null(pdf_file)) pdf_file = tempfile('plot_tree', fileext = '.pdf')
   if (!is.null(pdf_file)) if (!grepl('\\.pdf$', pdf_file)) stop('pdf_file needs to have extension ".pdf"')
   if (!is.null(pdf_file)) viewer_mode = FALSE
-  
-  if (is.null(pdf_file) && is.null(viewer_mode)) graphics::plot.new()
-  require_plot_new()
+  plots_window = is.null(pdf_file) && !viewer_mode ## will the regular plotting device be used?
+  if (!is.null(pdf_file) || !viewer_mode) {
+    graphics::plot.new()
+  } else {
+    if (require_plot_new()) graphics::plot.new()
+  }
   
   tokens = as_tokenindex(tokens) 
   
@@ -67,7 +71,7 @@ plot_tree <-function(tokens, ..., sentence_i=1, doc_id=NULL, sentence=NULL, anno
   nodes =  get_sentence(tokens, doc_id, sentence, sentence_i)
   nodes$rel_label = if (!is.null(all_abbrev)) abbreviate(nodes[['relation']], all_abbrev) else nodes[['relation']]
   nodes$label = nodes$token_id
-
+  
   nodes = split_adjacent(nodes)
   
   sentmes = sprintf('Document: %s\nSentence: %s', unique(nodes$doc_id), unique(nodes$sentence))
@@ -91,6 +95,10 @@ plot_tree <-function(tokens, ..., sentence_i=1, doc_id=NULL, sentence=NULL, anno
   g = igraph::graph.data.frame(edges, vertices=nodes, directed = TRUE)
   igraph::V(g)$id = as.numeric(igraph::V(g)$name)
   
+  if (all_lower) igraph::E(g)$relation = tolower(igraph::E(g)$relation)
+  if (!is.null(all_abbrev)) igraph::E(g)$relation = abbreviate(igraph::E(g)$relation, all_abbrev)
+  
+  
   ## order nodes, split by roots
   comps = igraph::decompose(g)
   if (length(comps) > 1) {
@@ -103,7 +111,7 @@ plot_tree <-function(tokens, ..., sentence_i=1, doc_id=NULL, sentence=NULL, anno
     tree_boundaries = sapply(reorder_list, length)
   } else tree_boundaries = NULL
   
-
+  
   root = find_roots(g)
   g$layout = igraph::layout_as_tree(g, root = root)
   
@@ -112,17 +120,17 @@ plot_tree <-function(tokens, ..., sentence_i=1, doc_id=NULL, sentence=NULL, anno
   co = g$layout
   e = igraph::get.edges(g, igraph::E(g))
   co[,1] = arrange_horizontal(g, text, tree_boundaries)
-  g = format_edges(g, max_curve, e)
+  g = format_edges(g, max_curve, e, rel_on_edge)
   nlevels = max(co[,2]) - min(co[,2])  ## remember for png mode
   co[,2] = arrange_vertical(co, text_cols)
-
+  
   
   ## make empty plot to get positions in current plot device
   if (!is.null(pdf_file)) {
     height = 7
     width = height * (grDevices::dev.size()[1] / grDevices::dev.size()[2])
     grDevices::pdf(pdf_file, height = height, width=width)
-  }
+  } 
   if (viewer_mode) {
     png_file = tempfile(fileext = '.png')
     height = max(c(400, (nlevels/2) * viewer_size[1]))
@@ -133,17 +141,20 @@ plot_tree <-function(tokens, ..., sentence_i=1, doc_id=NULL, sentence=NULL, anno
   oldpar = graphics::par(no.readonly = TRUE)
   on.exit(graphics::par(oldpar))  
   graphics::par(mar=c(0,0,0,0))
-  graphics::plot(0, type="n", ann=FALSE, axes=FALSE, xlim=grDevices::extendrange(co[,1]),ylim=grDevices::extendrange(c(-1,1)))
+  suppressWarnings(graphics::par(new=TRUE))
+  ylim = c(min(co[,2])-0.2, max(co[,2]) + 0.2)
+  if (!plots_window) ylim = grDevices::extendrange(c(-1, 1))   ## in this case it will crop whitespace anyway
+  graphics::plot(0, type="n", ann=FALSE, axes=FALSE, xlim=grDevices::extendrange(co[,1]), ylim=ylim)
   
   text = stringi::stri_trans_general(text,"any-latin")
   text = stringi::stri_trans_general(text,"latin-ascii")
   cex = calc_cex(g, co, text, tree_boundaries, spacing, textsize)
   g = set_graph_attr(g, e, cex, ignore_rel, palette, use_color) 
- 
+  
   graphics::plot(g, layout=co, rescale=FALSE, add=TRUE)
-  graphics::text(co[,1], co[,2]+(0.02*cex), labels=igraph::V(g)$rel_label, 
-       col = 'black', cex=cex*0.9, pos=3, font = 3)
-
+  if (!rel_on_edge) graphics::text(co[,1], co[,2]+(0.02*cex), labels=igraph::V(g)$rel_label, 
+                                   col = 'black', cex=cex*0.9, pos=3, font = 3)
+  
   ## add text and lines
   
   ## non-integers are added. highlight these in red for clarity
@@ -160,12 +171,12 @@ plot_tree <-function(tokens, ..., sentence_i=1, doc_id=NULL, sentence=NULL, anno
   }
   
   
-  graphics::text(co[,1], texty-(0.1*cex), labels=text, col = col, cex=cex, adj=c(0.5,1))
-  add_annotation(co, annotation, nodes, cex)
+  graphics::text(co[,1], texty-graphics::strheight('string')*1.5, labels=text, col = col, cex=cex, adj=c(0.5,1))
+  add_annotation(co, annotation, nodes, cex, plots_window)
   message(sentmes)
   drop = if (is.null(ignore_rel)) rep(FALSE, igraph::vcount(g)) else igraph::V(g)$relation %in% ignore_rel
   if (allign_text && length(text_cols) > 0) graphics::segments(co[,1], min(co[,2]), co[,1], co[,2]-0.05, lwd = ifelse(drop, NA, 0.5), lty=2, col='grey')
-  if (!is.null(pdf_file) || !is.null(viewer_mode)) grDevices::dev.off()
+  if (!plots_window) grDevices::dev.off()
   
   if (pdf_viewer) {
     viewer = getOption('viewer')
@@ -176,7 +187,7 @@ plot_tree <-function(tokens, ..., sentence_i=1, doc_id=NULL, sentence=NULL, anno
   }
   if (viewer_mode) {
     png_in_viewer(png_file)
-  }
+  } 
   invisible(tokens)
 }
 
@@ -229,18 +240,18 @@ get_sentence <- function(tokens, .DOC_ID=NULL, .SENTENCE=NULL, sentence_i=1) {
 
 
 width_boundaries <- function(width, tree_boundaries) {
-   if (!is.null(tree_boundaries)) {
+  if (!is.null(tree_boundaries)) {
     ## add space between isolated trees
     tree_boundaries = tree_boundaries[-length(tree_boundaries)]  ## don't add space after last tree
     tree_boundaries = cumsum(tree_boundaries)
     width[tree_boundaries] = width[tree_boundaries] * 1.5
-   }
+  }
   width
 }
 
 centered_width <- function(width) (width / 2) + data.table::shift(width / 2, type = 'lead', fill=0)
 
-format_edges <- function(g, max_curve, e) {
+format_edges <- function(g, max_curve, e, label) {
   ## format edges
   vdist = (e[,2] - e[,1])
   maxcurve = 1 / (1 + exp(-max(abs(vdist))*0.05))
@@ -250,6 +261,14 @@ format_edges <- function(g, max_curve, e) {
   igraph::E(g)$curved = curve
   igraph::E(g)$width = 2
   igraph::E(g)$color = 'darkgrey'
+  if (label) {
+    igraph::E(g)$label = igraph::E(g)$relation
+    igraph::E(g)$label.dist = 0
+    igraph::E(g)$label.degree = 3*pi
+    igraph::E(g)$label.color = 'black'
+    igraph::E(g)$label.font = 3
+    
+  }
   g  
 }
 
@@ -321,7 +340,7 @@ set_graph_attr <- function(g, e, cex, ignore_rel, palette, use_color) {
 }
 
 
-  
+
 festival <- function(labels, palette=palette){
   pal = palette(4097) #(16^3 + 1 for indexing)
   color = NA
@@ -393,7 +412,7 @@ arrange_vertical <- function(co, text_cols) {
 require_plot_new <- function() {
   ## this is a ridiculous function to trigger plot.new if necessary
   trigger = tryCatch(graphics::strwidth('banana'), error=function(e) 0)
-  if (trigger == 0) graphics::plot.new()
+  trigger == 0
 }
 
 get_width <- function(g, text, tree_boundaries){
@@ -418,8 +437,10 @@ rescale_var <- function(x, new_min=0, new_max=1, x_min=min(x), x_max=max(x)){
   return(x + new_min)
 }
 
-add_annotation <- function(co, annotation, nodes, cex) {
+add_annotation <- function(co, annotation, nodes, cex, plots_window) {
   ## draw boxes for the annotations
+  draw_box_f = if (plots_window) draw_box_alternative else draw_box
+  
   if (!is.null(annotation)) {
     vdist = co[,2]
     vdist = max(vdist) - max(vdist[vdist < max(vdist)])
@@ -443,29 +464,29 @@ add_annotation <- function(co, annotation, nodes, cex) {
       }
       if (role_done || id_done) {
         value = nodes[[annotation]][role_start]
-        if (!is.na(value)) draw_box(co, role_start, i-1, label=value, is_outer = FALSE, vdist, cex=cex)
+        if (!is.na(value)) draw_box_f(co, role_start, i-1, label=value, is_outer = FALSE, vdist, cex=cex)
         role_start = i
       }
       if (id_done) {      
         value = nodes[[ann_id]][id_start]
-        if (!is.na(value)) draw_box(co, id_start, i-1, label=value, is_outer=TRUE, vdist, cex=cex)
+        if (!is.na(value)) draw_box_f(co, id_start, i-1, label=value, is_outer=TRUE, vdist, cex=cex)
         id_start = i
       }
     }
     if (role_start <= i) {
       value = nodes[[annotation]][role_start]
-      if (!is.na(value)) draw_box(co, role_start, nrow(nodes), label=value, is_outer=FALSE, vdist, cex=cex)
+      if (!is.na(value)) draw_box_f(co, role_start, nrow(nodes), label=value, is_outer=FALSE, vdist, cex=cex)
     }
     if (id_start <= i) {
       value = nodes[[ann_id]][id_start]
-      if (!is.na(value)) draw_box(co, id_start, nrow(nodes), label=value, is_outer=TRUE, vdist, cex=cex)
+      if (!is.na(value)) draw_box_f(co, id_start, nrow(nodes), label=value, is_outer=TRUE, vdist, cex=cex)
     }
   }
 }
 
 draw_box <- function(co, start, end, vdist, label, is_outer=FALSE, hexp=1, vexp=1, cex=1,  ...) {
   vexp = if (is_outer) 1.2 else 1
-  hexp = if (is_outer) 1 else 0.95
+  hexp = if (is_outer) 1.05 else 1
   ldist = if (start == 1) abs(co[2,1] - co[1,1]) else co[start,1] - co[start-1,1] 
   rdist = if (end == nrow(co)) co[nrow(co),1] - co[end-1,1] else abs(co[end,1] - co[end+1,1]) 
   xl = co[start,1] - ((ldist/2.1)*hexp)
@@ -474,9 +495,36 @@ draw_box <- function(co, start, end, vdist, label, is_outer=FALSE, hexp=1, vexp=
   if (is_outer) yt = yt + vdist
   yb = min(co[start:end,2]) - (vdist/2)*vexp
   if (yb < -0.5) yb = -0.5 - (0.05*cex)
-  graphics::rect(xl,yb,xr,yt, lty=if(is_outer) 1 else 2, ...)
+  graphics::rect(xl,yb,xr,yt, lty=if(is_outer) 1 else 2, border=if(is_outer) 'black' else 'darkgrey', ...)
   labelx = mean(c(xl,xr))
   labely = yt + (vdist/2)
+  if (is_outer) {
+    graphics::text(labelx, labely, label, cex=cex*0.8, font= 2)
+  } else {
+    graphics::text(labelx, labely, label, cex=cex*0.8, font= 4)
+  }
+}
+
+draw_box_alternative <- function(co, start, end, vdist, label, is_outer=FALSE, hexp=1, vexp=1, cex=1,  ...) {
+  ## if the plotting device is used (instead of pdf or png), use different settings, because the
+  ## y-axis will not be 'compressed' afterwards 
+  labelheight = graphics::strheight(label)
+  
+  vexp = if (is_outer) 1.2 else 1
+  hexp = if (is_outer) 1 else 0.95
+  ldist = if (start == 1) abs(co[2,1] - co[1,1]) else co[start,1] - co[start-1,1] 
+  rdist = if (end == nrow(co)) co[nrow(co),1] - co[end-1,1] else abs(co[end,1] - co[end+1,1]) 
+  xl = co[start,1] - ((ldist/2.1)*hexp)
+  xr = co[end,1] + ((rdist/2.1)*hexp)
+  
+  yt = max(co[start:end,2]) + (vdist*0.5)
+  if (is_outer) yt = yt + labelheight*2
+  
+  yb = min(co[start:end,2]) - (vdist/2)*vexp
+  if (yb < -0.5) yb = -0.5 - (0.05*cex)
+  graphics::rect(xl,yb,xr,yt, lty=if(is_outer) 1 else 2, border=if(is_outer) 'black' else 'darkgrey', ...)
+  labelx = mean(c(xl,xr))
+  labely = yt + labelheight * 0.6
   if (is_outer) {
     graphics::text(labelx, labely, label, cex=cex*0.8, font= 2)
   } else {
@@ -499,7 +547,7 @@ crop_png <- function(png_file, new_file=tempfile(), margins=c(20,20)) {
   
   png::writePNG(m[white_y[1]:white_y[2],
                   white_x[1]:white_x[2],], 
-                  new_file)
+                new_file)
   new_file
 }
 
